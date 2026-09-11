@@ -83,8 +83,26 @@ Separately, three motors driven by the same command reported battery within two 
 of each other, then went silent for a full day of ordinary daily use.
 
 **The battery entity is therefore "last value seen, whenever that was", with no freshness
-guarantee.** Home Assistant's `last_reported` is the only honest indicator of age, and it
-can be days old on a motor being used every morning.
+guarantee.** A motor used every morning can show a reading several days old.
+
+### You cannot measure that staleness from Home Assistant
+
+The obvious guard is to check `last_reported` or `last_changed` and only believe a recent
+reading. **That does not work**, and it is worth knowing why before you build on it.
+
+Reloading the ZHA integration resets `last_reported` *and* `last_changed` on every one of
+these battery sensors, to the reload timestamp, even though the values are restored from
+the quirk's attribute cache and no motor sent anything:
+
+```
+sensor.curtain_1_battery   state=100.0   reported=2026-09-11T10:22:26   <- reload moment
+sensor.curtain_2_battery   state=  0.0   reported=2026-09-11T10:22:26   <- identical
+sensor.curtain_3_battery   state=100.0   reported=2026-09-11T10:22:26   <- identical
+```
+
+Those timestamps measure when Home Assistant last wrote the state, not when the device last
+spoke. After any reload or restart, a days-old frozen sample looks one second old. There is
+no reliable way to ask Home Assistant when one of these motors last actually sent DP 13.
 
 ### What this means for automations
 
@@ -100,19 +118,33 @@ triggers:
     for: "00:30:00"
 ```
 
-Because the value is frozen rather than refreshed, the hold is always satisfied. Guard on
-staleness as well as value — require that the reading is recent before believing it:
-
-```yaml
-conditions:
-  - condition: template
-    value_template: >
-      {{ (now() - states.sensor.curtain_battery.last_reported).total_seconds() < 172800 }}
-```
+Because the value is frozen rather than refreshed, the hold is always satisfied — and it
+re-fires after every restart or ZHA reload, because the sensor is re-created and crosses the
+threshold again.
 
 A single anomalous end-of-travel reading is realistic: one unit in the test fleet reported
-`0` at the end of a close while two identical motors on the same command reported `100`,
-and that `0` then persisted indefinitely because nothing refreshed it.
+`0` at the end of a close while two identical motors on the same command reported `100`, and
+that `0` then persisted indefinitely because nothing refreshed it.
+
+Since freshness is not measurable, guard on **plausibility and patience** instead:
+
+```yaml
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.curtain_battery
+    above: 0              # a reading of exactly 0 is not trusted
+    below: 20
+    for: "02:00:00"       # DP 13 sags under motor load; be patient
+```
+
+`above: 0` is the important half. A real discharge passes through non-zero low values first,
+and a pack genuinely at 0 stops moving the curtain — which is self-evident without a
+notification. The longer hold absorbs the voltage sag seen during travel (one motor read 45
+then 40 within 20 seconds of moving).
+
+The trade-off is explicit: this will not alert on a true 0%. Given that a true 0% is a motor
+that has stopped working, that is the better failure mode than an alert that cries wolf
+forever on a bad sample.
 
 ## Capture method
 

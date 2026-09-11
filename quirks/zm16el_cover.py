@@ -34,8 +34,10 @@ int32 percentage and a motor on USB charge reports a normal figure (one unit rea
 40% before charging and 100% after), but the motor does NOT send DP 13 on every
 travel: in one test it arrived ~45 s after travel finished, and on a second move
 90 s later it never came at all. The battery entity is therefore "last value
-seen, whenever that was" with no freshness guarantee. Do not build a low-battery
-alert on it without a staleness guard.
+seen, whenever that was" with no freshness guarantee, and that staleness is NOT
+measurable from Home Assistant - a ZHA reload resets last_reported and last_changed
+on these sensors even though the values come from the quirk's attribute cache. Guard
+a low-battery alert on plausibility and a long hold instead.
 
 Written against zha-quirks 2.2.2 (Home Assistant 2026.8.1).
 """
