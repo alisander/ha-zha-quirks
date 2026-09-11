@@ -61,14 +61,31 @@ The raw frame, captured with `zigpy` at debug while a motor finished moving:
 
 Tuya type `0x02` is a 4-byte integer value. Not an enum, not a bitmask, not a status code.
 
-### A motor on USB charge reports a normal percentage, and there is no charging flag
+### There is no separate charging datapoint — but what 0 means is unresolved
 
-One unit read **40%** the evening before the test, sat on its charger overnight, and
-reported **100%** after the test move. The figure tracks real pack charge.
+Across the entire capture window the motor emitted only DP 2, DP 3 and DP 13 — no charging
+state, no power-source datapoint, nothing. There is no *separate* charging indicator for a
+quirk to surface.
 
-Across the entire capture window the motor emitted only DP 2, DP 3 and DP 13 — no
-charging state, no power-source datapoint, nothing. **This firmware has no charging
-indicator to expose**, so no quirk can surface one.
+Whether charge state is signalled **in-band, inside DP 13 itself**, is an open question, and
+this doc does not claim to have settled it:
+
+- A motor that had been on its charger overnight read **100%** after a test move. That is
+  consistent with the figure simply tracking pack charge.
+- But a *different* motor, confirmed to be on a charger at the time, reported **0%**. The
+  same motor later reported **5%**.
+
+Those two observations have two readings, and the available data does not separate them:
+
+| | What 0 means | Fits the 100% reading because |
+|---|---|---|
+| **A** | a genuinely flat pack | the overnight motor was full, so 100 is its real level |
+| **B** | "actively charging" | the overnight motor had *finished* charging, so it reported a real level again |
+
+The decisive test is to read DP 13 from a motor that is **actively charging from a low
+state** — not one that has been on a charger long enough to finish. That test has not been
+run. If you have such a motor, the capture method below takes two minutes and the result
+would be a welcome issue or PR.
 
 ### DP 13 is sent sporadically, NOT on every travel
 
@@ -137,10 +154,10 @@ triggers:
     for: "02:00:00"       # DP 13 sags under motor load; be patient
 ```
 
-`above: 0` is the important half, and the reason is worth stating precisely: **0 is this
-hardware's load-sag floor, not a usable reading.**
+`above: 0` is the important half: **a reading of exactly 0 is not actionable**, whichever of
+the two explanations above turns out to be correct.
 
-The unit that reported `0` was tested directly. It had sat frozen at `0` for a day; the
+The unit that reported `0` was tested directly. It had been frozen at `0` for a day; the
 moment it was made to travel it reported `5`:
 
 ```
@@ -148,15 +165,14 @@ moment it was made to travel it reported `5`:
 [0x5354:1:0xef00] Received value 5 for attribute 0x000d
 ```
 
-So the `0` was not spurious — the pack really was nearly flat. But `0` is what these motors
-read at the worst instant under load, which is exactly when the end-of-travel frame is sent.
-The meaningful number arrives at other moments in the travel.
+So `0` was not a decode error — the device really sent it, and the same device really sent
+`5` later. Skipping it costs nothing under either reading: if `0` means a flat pack, that
+pack still reports 5, 3, 1 at other moments and trips the alert anyway; if `0` means
+"charging", it should never have alerted in the first place. What you gain either way is
+immunity to a sensor pinned at `0` indefinitely, re-alerting after every restart.
 
-Skipping `0` therefore loses nothing. A genuinely low pack still reports 5, 3, 1 and trips
-the alert; a pack truly at 0 stops moving the curtain, which announces itself. What you gain
-is immunity to a sensor pinned at `0` forever, re-alerting after every restart. The longer
-hold absorbs the sag seen during travel (one motor read 45 then 40 within 20 seconds of
-moving).
+The longer hold absorbs the sag seen during travel (one motor read 45 then 40 within 20
+seconds of moving).
 
 ## Capture method
 
