@@ -137,14 +137,26 @@ triggers:
     for: "02:00:00"       # DP 13 sags under motor load; be patient
 ```
 
-`above: 0` is the important half. A real discharge passes through non-zero low values first,
-and a pack genuinely at 0 stops moving the curtain — which is self-evident without a
-notification. The longer hold absorbs the voltage sag seen during travel (one motor read 45
-then 40 within 20 seconds of moving).
+`above: 0` is the important half, and the reason is worth stating precisely: **0 is this
+hardware's load-sag floor, not a usable reading.**
 
-The trade-off is explicit: this will not alert on a true 0%. Given that a true 0% is a motor
-that has stopped working, that is the better failure mode than an alert that cries wolf
-forever on a bad sample.
+The unit that reported `0` was tested directly. It had sat frozen at `0` for a day; the
+moment it was made to travel it reported `5`:
+
+```
+[0x5354:1:0xef00] Received ZCL frame: '09 46 02 00 01 0d 02 00 04 00 00 00 05'
+[0x5354:1:0xef00] Received value 5 for attribute 0x000d
+```
+
+So the `0` was not spurious — the pack really was nearly flat. But `0` is what these motors
+read at the worst instant under load, which is exactly when the end-of-travel frame is sent.
+The meaningful number arrives at other moments in the travel.
+
+Skipping `0` therefore loses nothing. A genuinely low pack still reports 5, 3, 1 and trips
+the alert; a pack truly at 0 stops moving the curtain, which announces itself. What you gain
+is immunity to a sensor pinned at `0` forever, re-alerting after every restart. The longer
+hold absorbs the sag seen during travel (one motor read 45 then 40 within 20 seconds of
+moving).
 
 ## Capture method
 
